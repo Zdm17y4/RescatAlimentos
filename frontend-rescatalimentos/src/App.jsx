@@ -1,5 +1,12 @@
-import { BrowserRouter, Link, Route, Routes, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import {
+  BrowserRouter,
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
 import Header from './components/Header.jsx'
 import HeroSection from './components/HeroSection.jsx'
 import ProblemSection from './components/ProblemSection.jsx'
@@ -19,7 +26,8 @@ import PublicarLotePage from './components/PublicarLotePage.jsx'
 import ComedorDashboardPage from './components/ComedorDashboardPage.jsx'
 import LogisticaDashboardPage from './components/LogisticaDashboardPage.jsx'
 import AdminDashboardPage from './components/AdminDashboardPage.jsx'
-import { LotesProvider } from './context/LotesContext.jsx'
+import { AuthProvider } from './context/AuthContext.jsx'
+import { useAuth } from './context/useAuth.js'
 import './styles/site.css'
 import './styles/access.css'
 import './styles/landing.css'
@@ -59,39 +67,80 @@ function NotFoundPage() {
   )
 }
 
+function ProtectedRoute({ role, children }) {
+  const { session, routesByRole } = useAuth()
+  const location = useLocation()
+
+  if (!session) {
+    return <Navigate replace state={{ from: location }} to="/login" />
+  }
+  if (role && session.role !== role) {
+    return <Navigate replace to={routesByRole[session.role]} />
+  }
+  return children
+}
+
 function AppLayout() {
   const navigate = useNavigate()
-  const [sesionDemo, setSesionDemo] = useState(null)
+  const { session, logout } = useAuth()
 
-  function iniciarSesionDemo(cuenta) {
-    setSesionDemo(cuenta.identidad)
-  }
-
-  function cerrarSesionDemo() {
-    setSesionDemo(null)
+  function cerrarSesion() {
+    logout()
     navigate('/', { replace: true })
   }
 
   return (
     <>
       <Header
-        sesionActiva={Boolean(sesionDemo)}
+        sesionActiva={Boolean(session)}
         onAuth={(mode) => navigate(mode === 'login' ? '/login' : '/registro')}
-        onLogout={cerrarSesionDemo}
+        onLogout={cerrarSesion}
       />
       <Routes>
         <Route element={<LandingPage />} path="/" />
-        <Route
-          element={<LoginPage onLogin={iniciarSesionDemo} />}
-          path="/login"
-        />
+        <Route element={<LoginPage />} path="/login" />
         <Route element={<RegistrationSelectionPage />} path="/registro" />
         <Route element={<RegistrationPage />} path="/registro/:role" />
-        <Route element={<PublicarLotePage />} path="/donante/publicar-lote" />
-        <Route element={<ComedorDashboardPage />} path="/comedor/dashboard" />
-        <Route element={<ComedorDashboardPage />} path="/comedor/lote/:id" />
-        <Route element={<LogisticaDashboardPage />} path="/logistica/dashboard" />
-        <Route element={<AdminDashboardPage />} path="/admin/usuarios" />
+        <Route
+          element={
+            <ProtectedRoute role="DONANTE">
+              <PublicarLotePage />
+            </ProtectedRoute>
+          }
+          path="/donante/publicar-lote"
+        />
+        <Route
+          element={
+            <ProtectedRoute role="COMEDOR">
+              <ComedorDashboardPage />
+            </ProtectedRoute>
+          }
+          path="/comedor/dashboard"
+        />
+        <Route
+          element={
+            <ProtectedRoute role="COMEDOR">
+              <ComedorDashboardPage />
+            </ProtectedRoute>
+          }
+          path="/comedor/lote/:id"
+        />
+        <Route
+          element={
+            <ProtectedRoute role="DRIVER">
+              <LogisticaDashboardPage />
+            </ProtectedRoute>
+          }
+          path="/logistica/dashboard"
+        />
+        <Route
+          element={
+            <ProtectedRoute role="ADMIN">
+              <AdminDashboardPage />
+            </ProtectedRoute>
+          }
+          path="/admin/usuarios"
+        />
         <Route element={<NotFoundPage />} path="*" />
       </Routes>
       <SiteFooter onJoin={() => navigate('/registro')} />
@@ -102,9 +151,9 @@ function AppLayout() {
 function App() {
   return (
     <BrowserRouter>
-      <LotesProvider>
+      <AuthProvider>
         <AppLayout />
-      </LotesProvider>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

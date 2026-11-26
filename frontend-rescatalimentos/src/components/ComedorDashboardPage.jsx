@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
-import { useState } from 'react'
-import { useLotes } from '../context/useLotes.js'
+import { useEffect, useState } from 'react'
+import { apiRequest, mapLote } from '../api/client.js'
+import { useAuth } from '../context/useAuth.js'
 
 function formatearVencimiento(valor) {
   const fecha = new Date(valor)
@@ -14,9 +15,6 @@ function formatearVencimiento(valor) {
 function NavegacionPrototipo({ detalle = false }) {
   return (
     <nav aria-label="Navegación del prototipo" className="prototipo-nav">
-      <Link className="button prototipo-button-secondary" to="/donante/publicar-lote">
-        Publicar un lote
-      </Link>
       <Link
         aria-current={detalle ? undefined : 'page'}
         className="button button-primary"
@@ -31,35 +29,48 @@ function NavegacionPrototipo({ detalle = false }) {
 function DetalleLote({
   lote,
   reservarLote,
-  solicitarApoyoLogistico,
-  errorPersistencia,
 }) {
   const [reservado, setReservado] = useState(false)
   const [mostrarOpcionesMovilidad, setMostrarOpcionesMovilidad] = useState(false)
-  const [apoyoLogisticoSolicitado, setApoyoLogisticoSolicitado] = useState(false)
+  const [mostrarDireccionEntrega, setMostrarDireccionEntrega] = useState(false)
+  const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [requestError, setRequestError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [transportRequested, setTransportRequested] = useState(false)
 
-  function reservar() {
-    reservarLote(lote.id)
-    setReservado(true)
-  }
+  async function reservar(requestTransport) {
+    setRequestError('')
+    if (requestTransport && !deliveryAddress.trim()) {
+      setRequestError('Ingresa la dirección de entrega para solicitar transporte.')
+      return
+    }
 
-  function solicitarTransporte() {
-    solicitarApoyoLogistico(lote)
-    setReservado(true)
-    setApoyoLogisticoSolicitado(true)
+    setSaving(true)
+    try {
+      await reservarLote(lote.id, {
+        request_transport: requestTransport,
+        delivery_address: requestTransport ? deliveryAddress.trim() : null,
+      })
+      setReservado(true)
+      setTransportRequested(requestTransport)
+    } catch (error) {
+      setRequestError(error.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <main className="access-page section-padding prototipo-page">
       <header className="access-heading">
-        <p className="eyebrow">Comedor · Datos de prueba</p>
+        <p className="eyebrow">Comedor · Conectado al backend</p>
         <h1>Detalle del lote</h1>
         <p>Revisa la información antes de aceptar la reserva.</p>
       </header>
       <NavegacionPrototipo detalle />
-      {errorPersistencia && (
-        <p className="prototipo-storage-error" role="alert">
-          {errorPersistencia}
+      {requestError && (
+        <p className="form-error-summary" role="alert">
+          {requestError}
         </p>
       )}
       <article className="lote-detalle-panel">
@@ -89,39 +100,61 @@ function DetalleLote({
             </div>
             <div>
               <dt>Distancia aproximada</dt>
-              <dd>{lote.distanciaKm.toFixed(1)} km (referencia de prueba)</dd>
+              <dd>No disponible</dd>
             </div>
             <div>
               <dt>Estado</dt>
               <dd>{lote.estado === 'DISPONIBLE' ? 'Disponible' : 'Reservado'}</dd>
             </div>
           </dl>
-          <p className="lote-origen">Datos de prueba · Ubicación aproximada ficticia</p>
+          <p className="lote-origen">Información obtenida del backend</p>
           {reservado && (
             <p className="form-message" role="status">
-              {apoyoLogisticoSolicitado
-                ? 'Reserva confirmada. La solicitud sintética de transporte ya está disponible para el voluntario.'
-                : 'Reserva confirmada en este prototipo. El lote ya no aparece entre los disponibles.'}
+              {transportRequested
+                ? 'Reserva confirmada y solicitud de transporte creada.'
+                : 'Reserva confirmada.'}
             </p>
           )}
-          {lote.estado === 'DISPONIBLE' ? (
+          {!reservado && lote.estado === 'DISPONIBLE' ? (
             mostrarOpcionesMovilidad ? (
               <div className="reserva-opciones">
                 <p>¿Cómo recogerá el lote el comedor?</p>
                 <button
                   className="button button-primary"
-                  onClick={reservar}
+                  disabled={saving}
+                  onClick={() => reservar(false)}
                   type="button"
                 >
                   Usar movilidad propia
                 </button>
-                <button
-                  className="button prototipo-button-secondary"
-                  onClick={solicitarTransporte}
-                  type="button"
-                >
-                  Solicitar apoyo de transporte
-                </button>
+                {!mostrarDireccionEntrega ? (
+                  <button
+                    className="button prototipo-button-secondary"
+                    onClick={() => setMostrarDireccionEntrega(true)}
+                    type="button"
+                  >
+                    Solicitar apoyo de transporte
+                  </button>
+                ) : (
+                  <div>
+                    <label className="lote-campo" htmlFor="deliveryAddress">
+                      Dirección de entrega
+                      <input
+                        id="deliveryAddress"
+                        onChange={(event) => setDeliveryAddress(event.target.value)}
+                        value={deliveryAddress}
+                      />
+                    </label>
+                    <button
+                      className="button prototipo-button-secondary"
+                      disabled={saving}
+                      onClick={() => reservar(true)}
+                      type="button"
+                    >
+                      {saving ? 'Reservando…' : 'Confirmar reserva y transporte'}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <button
@@ -132,7 +165,7 @@ function DetalleLote({
                 Aceptar y reservar lote
               </button>
             )
-          ) : !reservado ? (
+          ) : !reservado && lote.estado !== 'DISPONIBLE' ? (
             <p className="lote-reservado" role="status">
               Este lote ya está reservado y no está disponible para otra reserva.
             </p>
@@ -148,21 +181,65 @@ function DetalleLote({
 
 function ComedorDashboardPage() {
   const { id } = useParams()
-  const {
-    lotes,
-    reservarLote,
-    solicitarApoyoLogistico,
-    errorPersistencia,
-  } = useLotes()
+  const { session } = useAuth()
+  const [lotes, setLotes] = useState([])
+  const [loteDetalle, setLoteDetalle] = useState(null)
+  const [requestState, setRequestState] = useState({
+    key: '',
+    loading: true,
+    error: '',
+  })
+  const requestKey = id || 'lotes'
+  const loading =
+    requestState.key !== requestKey || requestState.loading
+  const errorApi = requestState.key === requestKey ? requestState.error : ''
+
+  useEffect(() => {
+    let active = true
+    const path = id ? `/lotes/${encodeURIComponent(id)}` : '/lotes'
+    apiRequest(path, { token: session.token })
+      .then((result) => {
+        if (!active) return
+        if (id) setLoteDetalle(mapLote(result))
+        else setLotes(result.map(mapLote))
+        setRequestState({ key: requestKey, loading: false, error: '' })
+      })
+      .catch((error) => {
+        if (!active) return
+        if (id) setLoteDetalle(null)
+        else setLotes([])
+        setRequestState({
+          key: requestKey,
+          loading: false,
+          error: error.message,
+        })
+      })
+    return () => {
+      active = false
+    }
+  }, [id, requestKey, session.token])
+
+  async function reservarLote(loteId, body) {
+    const reservation = await apiRequest(
+      `/lotes/${encodeURIComponent(loteId)}/reservas`,
+      { method: 'POST', token: session.token, body },
+    )
+    setLoteDetalle((current) =>
+      current ? { ...current, estado: 'RESERVADO' } : current,
+    )
+    return reservation
+  }
 
   if (id) {
-    const lote = lotes.find((elemento) => elemento.id === id)
-    if (!lote) {
+    if (loading) {
+      return <main className="access-page section-padding"><p role="status">Cargando lote…</p></main>
+    }
+    if (errorApi || !loteDetalle) {
       return (
         <main className="access-page section-padding prototipo-page">
           <section className="login-panel">
-            <p className="eyebrow">Lote no encontrado</p>
-            <h1>Esta publicación no está disponible</h1>
+            <p className="eyebrow">No se pudo cargar el lote</p>
+            <h1>{errorApi || 'Esta publicación no está disponible.'}</h1>
             <Link className="button button-primary" to="/comedor/dashboard">
               Volver al listado
             </Link>
@@ -172,37 +249,30 @@ function ComedorDashboardPage() {
     }
     return (
       <DetalleLote
-        errorPersistencia={errorPersistencia}
-        lote={lote}
+        lote={loteDetalle}
         reservarLote={reservarLote}
-        solicitarApoyoLogistico={solicitarApoyoLogistico}
       />
     )
   }
 
-  const lotesDisponibles = lotes.filter(
-    (lote) => lote.estado === 'DISPONIBLE' && lote.distanciaKm < 5,
-  )
-
   return (
     <main className="access-page section-padding prototipo-page">
       <header className="access-heading">
-        <p className="eyebrow">Comedor · Datos de prueba</p>
-        <h1>Lotes disponibles cerca de ti</h1>
-        <p>
-          Ejemplos ficticios a menos de 5 km. Las distancias son referencias de prueba;
-          no provienen de un mapa ni representan ubicaciones reales.
-        </p>
+        <p className="eyebrow">Comedor · Conectado al backend</p>
+        <h1>Lotes disponibles</h1>
+        <p>Publicaciones disponibles consultadas desde la API.</p>
       </header>
       <NavegacionPrototipo />
-      {errorPersistencia && (
-        <p className="prototipo-storage-error" role="alert">
-          {errorPersistencia}
+      {errorApi && (
+        <p className="form-error-summary" role="alert">
+          {errorApi}
         </p>
       )}
-      {lotesDisponibles.length ? (
+      {loading ? (
+        <p role="status">Cargando lotes…</p>
+      ) : lotes.length ? (
         <section aria-label="Lotes de alimentos disponibles" className="lotes-grid">
-          {lotesDisponibles.map((lote) => (
+          {lotes.map((lote) => (
             <article className="lote-card" key={lote.id}>
               {lote.imagen ? (
                 <img alt={`Fotografía de ${lote.descripcion}`} src={lote.imagen} />
@@ -214,7 +284,7 @@ function ComedorDashboardPage() {
               <div className="lote-card-content">
                 <div className="lote-card-heading">
                   <span className="lote-badge">{lote.categoria}</span>
-                  <span className="lote-distancia">{lote.distanciaKm.toFixed(1)} km</span>
+                  <span className="lote-distancia">Distancia no disponible</span>
                 </div>
                 <h2>{lote.descripcion}</h2>
                 <p className="lote-peso">{lote.pesoKg} kg</p>
@@ -232,7 +302,7 @@ function ComedorDashboardPage() {
                     <dd>{lote.donante}</dd>
                   </div>
                 </dl>
-                <span className="lote-origen">{lote.origen}</span>
+                <span className="lote-origen">Publicado en el backend</span>
                 <Link className="button button-primary lote-ver-detalle" to={`/comedor/lote/${lote.id}`}>
                   Ver detalle y reservar
                 </Link>
@@ -242,7 +312,7 @@ function ComedorDashboardPage() {
         </section>
       ) : (
         <p className="prototipo-empty" role="status">
-          No hay lotes disponibles a menos de 5 km en los datos de prueba.
+          No hay lotes disponibles en este momento.
         </p>
       )}
     </main>

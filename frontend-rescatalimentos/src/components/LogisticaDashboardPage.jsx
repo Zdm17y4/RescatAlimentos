@@ -1,29 +1,73 @@
-import { useLotes } from '../context/useLotes.js'
+import { useEffect, useState } from 'react'
+import { apiRequest, mapSolicitudTransporte } from '../api/client.js'
+import { useAuth } from '../context/useAuth.js'
 
 function LogisticaDashboardPage() {
-  const { solicitudesLogistica, aceptarRuta, errorPersistencia } = useLotes()
+  const { session } = useAuth()
+  const [solicitudes, setSolicitudes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [errorApi, setErrorApi] = useState('')
+  const [acceptingId, setAcceptingId] = useState('')
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/transporte/solicitudes', { token: session.token })
+      .then((result) => {
+        if (active) setSolicitudes(result.map(mapSolicitudTransporte))
+      })
+      .catch((error) => {
+        if (active) setErrorApi(error.message)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [session.token])
+
+  async function aceptarRuta(id) {
+    setErrorApi('')
+    setAcceptingId(id)
+    try {
+      const result = await apiRequest(
+        `/transporte/solicitudes/${encodeURIComponent(id)}/aceptacion`,
+        { method: 'POST', token: session.token },
+      )
+      setSolicitudes((current) =>
+        current.map((item) =>
+          item.id === id ? mapSolicitudTransporte(result) : item,
+        ),
+      )
+    } catch (error) {
+      setErrorApi(error.message)
+    } finally {
+      setAcceptingId('')
+    }
+  }
 
   return (
     <main className="access-page section-padding prototipo-page">
       <header className="access-heading">
-        <p className="eyebrow">Logística · Datos de prueba</p>
+        <p className="eyebrow">Logística · Conectado al backend</p>
         <h1>Solicitudes de transporte</h1>
         <p>
-          Revisa el recojo, la entrega y los requisitos de cada lote. Las
-          ubicaciones y distancias son ficticias y no representan rutas reales.
+          Revisa las solicitudes disponibles registradas en el backend.
         </p>
       </header>
-      {errorPersistencia && (
-        <p className="prototipo-storage-error" role="alert">
-          {errorPersistencia}
+      {errorApi && (
+        <p className="form-error-summary" role="alert">
+          {errorApi}
         </p>
       )}
-      {solicitudesLogistica.length ? (
+      {loading ? (
+        <p role="status">Cargando solicitudes…</p>
+      ) : solicitudes.length ? (
         <section
-          aria-label="Solicitudes de transporte disponibles"
+          aria-label="Solicitudes de transporte"
           className="rutas-grid"
         >
-          {solicitudesLogistica.map((solicitud) => (
+          {solicitudes.map((solicitud) => (
             <article className="ruta-card" key={solicitud.id}>
               <div className="ruta-card-heading">
                 <span className="lote-badge">{solicitud.categoria}</span>
@@ -43,12 +87,8 @@ function LogisticaDashboardPage() {
                   <dd>{solicitud.puntoEntrega}</dd>
                 </div>
                 <div>
-                  <dt>Donante</dt>
-                  <dd>{solicitud.donante}</dd>
-                </div>
-                <div>
-                  <dt>Distancia de referencia</dt>
-                  <dd>{solicitud.distanciaKm.toFixed(1)} km</dd>
+                  <dt>Distancia</dt>
+                  <dd>No disponible</dd>
                 </div>
                 <div>
                   <dt>Conservación</dt>
@@ -62,24 +102,24 @@ function LogisticaDashboardPage() {
               {solicitud.estado === 'DISPONIBLE' ? (
                 <button
                   className="button button-primary"
+                  disabled={acceptingId === solicitud.id}
                   onClick={() => aceptarRuta(solicitud.id)}
                   type="button"
                 >
-                  Aceptar ruta
+                  {acceptingId === solicitud.id ? 'Aceptando…' : 'Aceptar ruta'}
                 </button>
               ) : (
                 <p className="form-message" role="status">
-                  Ruta aceptada por el voluntario de demostración.
+                  Solicitud asignada a tu cuenta.
                 </p>
               )}
-              <span className="lote-origen">Solicitud sintética de prueba</span>
+              <span className="lote-origen">Solicitud del backend</span>
             </article>
           ))}
         </section>
       ) : (
         <p className="prototipo-empty" role="status">
-          No hay solicitudes de transporte. Para generar una, entra como comedor
-          de prueba, elige un lote y solicita apoyo de transporte al reservarlo.
+          No hay solicitudes de transporte disponibles.
         </p>
       )}
     </main>
