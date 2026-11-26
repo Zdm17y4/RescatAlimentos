@@ -55,6 +55,7 @@ class User(Base):
         SqlEnum(AccountStatus, name="account_status", native_enum=False, length=20),
         default=AccountStatus.PENDIENTE,
     )
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

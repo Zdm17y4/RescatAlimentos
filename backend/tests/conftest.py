@@ -9,6 +9,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ.setdefault(
+    "JWT_SECRET_KEY",
+    "test-only-secret-key-that-is-at-least-thirty-two-bytes",
+)
 
 from app.api.dependencies import AuthenticatedActor, get_current_actor
 from app.db.base import Base

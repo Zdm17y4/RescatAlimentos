@@ -1,6 +1,6 @@
 # RescatAlimentos API
 
-Backend para el Sprint 2 de Miguel: persistencia PostgreSQL y endpoints de lotes,
+Backend para el Sprint 2: autenticación y aprobación de usuarios, lotes,
 reservas y solicitudes básicas de transporte.
 
 ## Requisitos
@@ -31,6 +31,22 @@ uvicorn app.main:app --reload
 
 La documentación OpenAPI queda disponible en `http://127.0.0.1:8000/docs`.
 
+Configura `JWT_SECRET_KEY` con una clave aleatoria de al menos 32 caracteres;
+`JWT_ALGORITHM` y `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` también se leen del entorno.
+El valor de `.env.example` es solo ilustrativo y no debe usarse en producción.
+
+## Autenticación y aprobación
+
+- `POST /api/v1/auth/registro` crea una cuenta `PENDIENTE`.
+- `POST /api/v1/auth/login` emite un access token solo para cuentas `ACTIVO`.
+- `GET /api/v1/admin/usuarios/pendientes` lista las cuentas por revisar.
+- `POST /api/v1/admin/usuarios/{id}/aprobar` activa una cuenta pendiente.
+- `POST /api/v1/admin/usuarios/{id}/rechazar` rechaza una cuenta pendiente y guarda el motivo.
+
+Las rutas administrativas requieren un access token con rol `ADMIN`. La migración
+`0002_user_rejection_reason` agrega el motivo de rechazo sin modificar la migración
+inicial.
+
 ## Pruebas
 
 ```powershell
@@ -39,19 +55,16 @@ pytest
 
 Las pruebas usan SQLite temporal y no necesitan una instancia PostgreSQL.
 
-## Autenticación e integración
+## Integración
 
-Las rutas operativas exigen un actor autenticado y su rol. La dependencia
-`get_current_actor` es el punto de integración para el JWT que implementará
-Mateo. Hasta integrar esa validación, las rutas protegidas responden `401` si
-no hay un actor en `request.state.current_actor`; no se aceptan IDs o roles
-proporcionados por el cliente como sustituto de autenticación.
+Las rutas operativas y administrativas validan los access tokens Bearer mediante
+`get_current_actor`; el rol y el ID provienen de claims firmados, no del body.
 
 ## Patrones implementados
 
-- **Repository:** `app/repositories.py` encapsula las consultas y escrituras.
+- **Repository:** `app/repositories.py` encapsula consultas y escrituras de usuarios,
+  lotes y transporte.
 - **Unit of Work:** `app/unit_of_work.py` administra repositorios y confirma o
   revierte cada caso de uso como una transacción.
-- **State:** `app/domain/states.py` encapsula las transiciones válidas de lotes
-  y solicitudes logísticas. Los estados MVP son `DISPONIBLE` → `RESERVADO` y
-  `DISPONIBLE` → `ASIGNADA`, respectivamente.
+- **State:** `app/domain/states.py` encapsula las transiciones de cuentas, lotes y
+  solicitudes logísticas.

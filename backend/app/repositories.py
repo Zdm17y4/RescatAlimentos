@@ -4,7 +4,51 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Lot, LotStatus, Reservation, TransportRequest, TransportStatus
+from app.db.models import (
+    AccountStatus,
+    Lot,
+    LotStatus,
+    Reservation,
+    TransportRequest,
+    TransportStatus,
+    User,
+)
+
+
+class UserRepository(Protocol):
+    def add(self, user: User) -> None: ...
+
+    def get(self, user_id: UUID, *, for_update: bool = False) -> User | None: ...
+
+    def get_by_email(self, email: str) -> User | None: ...
+
+    def list_by_status(self, status: AccountStatus) -> list[User]: ...
+
+
+class SqlAlchemyUserRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, user: User) -> None:
+        self._session.add(user)
+
+    def get(self, user_id: UUID, *, for_update: bool = False) -> User | None:
+        statement = select(User).where(User.id == user_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return self._session.scalar(statement)
+
+    def get_by_email(self, email: str) -> User | None:
+        statement = select(User).where(User.email == email)
+        return self._session.scalar(statement)
+
+    def list_by_status(self, status: AccountStatus) -> list[User]:
+        statement = (
+            select(User)
+            .where(User.account_status == status)
+            .order_by(User.created_at.asc())
+        )
+        return list(self._session.scalars(statement))
 
 
 class LotRepository(Protocol):

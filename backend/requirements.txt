@@ -1,6 +1,9 @@
 alembic>=1.13,<2
 fastapi>=0.110,<0.116
+PyJWT>=2.8,<3
 psycopg[binary]>=3.1,<4
 pydantic-settings>=2,<3
+email-validator>=2,<3
+pwdlib[argon2]>=0.2,<1
 sqlalchemy>=2,<2.1
 uvicorn[standard]>=0.29,<1

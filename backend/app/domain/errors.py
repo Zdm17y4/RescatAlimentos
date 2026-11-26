@@ -14,5 +14,13 @@ class ResourceConflictError(DomainError):
     pass
 
 
+class InvalidCredentialsError(DomainError):
+    pass
+
+
+class InactiveAccountError(DomainError):
+    pass
+
+
 class PersistenceConflictError(Exception):
     pass

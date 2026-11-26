@@ -1,9 +1,14 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.core.security import InvalidAccessTokenError, decode_access_token
 from app.db.models import UserRole
+
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @dataclass(frozen=True)
@@ -12,15 +17,24 @@ class AuthenticatedActor:
     role: UserRole
 
 
-def get_current_actor(request: Request) -> AuthenticatedActor:
-    actor = getattr(request.state, "current_actor", None)
-    if not isinstance(actor, AuthenticatedActor):
+def get_current_actor(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> AuthenticatedActor:
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Se requiere autenticación.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return actor
+    try:
+        claims = decode_access_token(credentials.credentials)
+    except InvalidAccessTokenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(error),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from error
+    return AuthenticatedActor(user_id=claims.subject, role=claims.role)
 
 
 def require_role(required_role: UserRole):

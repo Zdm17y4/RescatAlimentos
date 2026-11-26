@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 from uuid import UUID
 
-from app.db.models import LotStatus, TransportStatus
+from app.db.models import AccountStatus, LotStatus, TransportStatus
 from app.domain.errors import InvalidTransitionError
 
 
@@ -58,6 +58,107 @@ class LotLifecycle:
 
     def reserve(self) -> None:
         self.state = self.state.reserve()
+
+
+class AccountState(Protocol):
+    @property
+    def status(self) -> AccountStatus: ...
+
+    @property
+    def rejection_reason(self) -> str | None: ...
+
+    def approve(self) -> AccountState: ...
+
+    def reject(self, reason: str) -> AccountState: ...
+
+
+@dataclass(frozen=True)
+class PendingAccountState:
+    @property
+    def status(self) -> AccountStatus:
+        return AccountStatus.PENDIENTE
+
+    @property
+    def rejection_reason(self) -> None:
+        return None
+
+    def approve(self) -> AccountState:
+        return ActiveAccountState()
+
+    def reject(self, reason: str) -> AccountState:
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("El motivo de rechazo no puede estar vacío.")
+        return RejectedAccountState(normalized_reason)
+
+
+@dataclass(frozen=True)
+class ActiveAccountState:
+    @property
+    def status(self) -> AccountStatus:
+        return AccountStatus.ACTIVO
+
+    @property
+    def rejection_reason(self) -> None:
+        return None
+
+    def approve(self) -> AccountState:
+        raise InvalidTransitionError("La cuenta ya fue procesada.")
+
+    def reject(self, reason: str) -> AccountState:
+        raise InvalidTransitionError("La cuenta ya fue procesada.")
+
+
+@dataclass(frozen=True)
+class RejectedAccountState:
+    rejection_reason: str | None
+
+    @property
+    def status(self) -> AccountStatus:
+        return AccountStatus.RECHAZADO
+
+    def approve(self) -> AccountState:
+        raise InvalidTransitionError("La cuenta ya fue procesada.")
+
+    def reject(self, reason: str) -> AccountState:
+        raise InvalidTransitionError("La cuenta ya fue procesada.")
+
+
+def account_state_for(
+    status: AccountStatus, rejection_reason: str | None = None
+) -> AccountState:
+    states: dict[AccountStatus, AccountState] = {
+        AccountStatus.PENDIENTE: PendingAccountState(),
+        AccountStatus.ACTIVO: ActiveAccountState(),
+    }
+    if status is AccountStatus.RECHAZADO:
+        return RejectedAccountState(rejection_reason)
+    return states[status]
+
+
+@dataclass
+class AccountLifecycle:
+    state: AccountState
+
+    @classmethod
+    def from_values(
+        cls, status: AccountStatus, rejection_reason: str | None = None
+    ) -> AccountLifecycle:
+        return cls(account_state_for(status, rejection_reason))
+
+    @property
+    def status(self) -> AccountStatus:
+        return self.state.status
+
+    @property
+    def rejection_reason(self) -> str | None:
+        return self.state.rejection_reason
+
+    def approve(self) -> None:
+        self.state = self.state.approve()
+
+    def reject(self, reason: str) -> None:
+        self.state = self.state.reject(reason)
 
 
 class TransportState(Protocol):

@@ -8,10 +8,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
+from app.api.admin_routes import router as admin_router
+from app.api.auth_routes import router as auth_router
 from app.api.routes import router
 from app.core.config import get_settings
 from app.db.base import Base
-from app.domain.errors import ResourceConflictError, ResourceNotFoundError
+from app.domain.errors import (
+    InactiveAccountError,
+    InvalidCredentialsError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.include_router(router)
+    app.include_router(auth_router)
+    app.include_router(admin_router)
 
     @app.exception_handler(ResourceNotFoundError)
     async def not_found_handler(
@@ -55,6 +64,25 @@ def create_app(database_url: str | None = None) -> FastAPI:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
+            content={"detail": str(error)},
+        )
+
+    @app.exception_handler(InvalidCredentialsError)
+    async def invalid_credentials_handler(
+        _: Request, error: InvalidCredentialsError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": str(error)},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(InactiveAccountError)
+    async def inactive_account_handler(
+        _: Request, error: InactiveAccountError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
             content={"detail": str(error)},
         )
 

@@ -3,9 +3,37 @@ from uuid import uuid4
 
 import pytest
 
-from app.db.models import LotStatus, TransportStatus
+from app.db.models import AccountStatus, LotStatus, TransportStatus
 from app.domain.errors import InvalidTransitionError
-from app.domain.states import LotLifecycle, TransportLifecycle
+from app.domain.states import AccountLifecycle, LotLifecycle, TransportLifecycle
+
+
+def test_account_state_allows_only_pending_to_processed() -> None:
+    pending = AccountLifecycle.from_values(AccountStatus.PENDIENTE)
+    pending.approve()
+
+    assert pending.status is AccountStatus.ACTIVO
+    with pytest.raises(InvalidTransitionError, match="ya fue procesada"):
+        pending.approve()
+    with pytest.raises(InvalidTransitionError, match="ya fue procesada"):
+        pending.reject("No permitido")
+
+    rejected = AccountLifecycle.from_values(AccountStatus.PENDIENTE)
+    rejected.reject("Documentación incompleta")
+
+    assert rejected.status is AccountStatus.RECHAZADO
+    assert rejected.rejection_reason == "Documentación incompleta"
+    with pytest.raises(InvalidTransitionError, match="ya fue procesada"):
+        rejected.approve()
+    with pytest.raises(InvalidTransitionError, match="ya fue procesada"):
+        rejected.reject("Otro motivo")
+
+
+def test_account_rejection_requires_a_non_empty_reason() -> None:
+    lifecycle = AccountLifecycle.from_values(AccountStatus.PENDIENTE)
+
+    with pytest.raises(ValueError, match="no puede estar vacío"):
+        lifecycle.reject("   ")
 
 
 def test_lot_state_allows_only_available_to_reserved() -> None:

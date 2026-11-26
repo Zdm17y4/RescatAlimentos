@@ -14,11 +14,14 @@ from app.repositories import (
     SqlAlchemyLotRepository,
     SqlAlchemyReservationRepository,
     SqlAlchemyTransportRepository,
+    SqlAlchemyUserRepository,
     TransportRepository,
+    UserRepository,
 )
 
 
 class UnitOfWork(Protocol):
+    users: UserRepository
     lotes: LotRepository
     reservas: ReservationRepository
     transporte: TransportRepository
@@ -31,6 +34,7 @@ class UnitOfWork(Protocol):
 
 
 class SqlAlchemyUnitOfWork:
+    users: UserRepository
     lotes: LotRepository
     reservas: ReservationRepository
     transporte: TransportRepository
@@ -42,6 +46,7 @@ class SqlAlchemyUnitOfWork:
     def __enter__(self) -> SqlAlchemyUnitOfWork:
         session = self._session_factory()
         self._session = session
+        self.users = SqlAlchemyUserRepository(session)
         self.lotes = SqlAlchemyLotRepository(session)
         self.reservas = SqlAlchemyReservationRepository(session)
         self.transporte = SqlAlchemyTransportRepository(session)

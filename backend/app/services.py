@@ -1,27 +1,119 @@
 from uuid import UUID
 
 from app.db.models import (
+    AccountStatus,
     Lot,
     LotStatus,
     Reservation,
     TransportRequest,
     TransportStatus,
+    User,
 )
 from app.domain.errors import (
     InvalidTransitionError,
+    InactiveAccountError,
+    InvalidCredentialsError,
     PersistenceConflictError,
     ResourceConflictError,
     ResourceNotFoundError,
 )
-from app.domain.states import LotLifecycle, TransportLifecycle
+from app.domain.states import AccountLifecycle, LotLifecycle, TransportLifecycle
+from app.core.security import create_access_token, hash_password, verify_password
 from app.schemas import (
+    LoginRequest,
     LoteCreate,
     LoteRead,
+    RegistroRequest,
+    TokenRead,
+    UsuarioRead,
     ReservaCreate,
     ReservaRead,
     SolicitudTransporteRead,
 )
 from app.unit_of_work import UnitOfWork
+
+
+class AuthService:
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def register(self, data: RegistroRequest) -> UsuarioRead:
+        email = str(data.email).strip().lower()
+        try:
+            with self._uow:
+                if self._uow.users.get_by_email(email) is not None:
+                    raise ResourceConflictError(
+                        "Ya existe una cuenta registrada con ese correo."
+                    )
+                user = User(
+                    email=email,
+                    password_hash=hash_password(data.password),
+                    role=data.role,
+                    account_status=AccountStatus.PENDIENTE,
+                    address=data.address,
+                )
+                self._uow.users.add(user)
+                self._uow.flush()
+                return UsuarioRead.model_validate(user)
+        except PersistenceConflictError as error:
+            raise ResourceConflictError(
+                "Ya existe una cuenta registrada con ese correo."
+            ) from error
+
+    def login(self, data: LoginRequest) -> TokenRead:
+        email = str(data.email).strip().lower()
+        with self._uow:
+            user = self._uow.users.get_by_email(email)
+            if user is None or not verify_password(data.password, user.password_hash):
+                raise InvalidCredentialsError("Correo o contraseña incorrectos.")
+            if user.account_status is not AccountStatus.ACTIVO:
+                raise InactiveAccountError(
+                    "La cuenta no está activa y no puede iniciar sesión."
+                )
+            token = create_access_token(user.id, user.role)
+            return TokenRead(access_token=token)
+
+
+class AdminUserService:
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def list_pending(self) -> list[UsuarioRead]:
+        with self._uow:
+            return [
+                UsuarioRead.model_validate(user)
+                for user in self._uow.users.list_by_status(AccountStatus.PENDIENTE)
+            ]
+
+    def approve(self, user_id: UUID) -> UsuarioRead:
+        return self._transition(user_id, approve=True)
+
+    def reject(self, user_id: UUID, reason: str) -> UsuarioRead:
+        return self._transition(user_id, approve=False, reason=reason)
+
+    def _transition(
+        self, user_id: UUID, *, approve: bool, reason: str | None = None
+    ) -> UsuarioRead:
+        try:
+            with self._uow:
+                user = self._uow.users.get(user_id, for_update=True)
+                if user is None:
+                    raise ResourceNotFoundError("No se encontró la cuenta.")
+                lifecycle = AccountLifecycle.from_values(
+                    user.account_status, user.rejection_reason
+                )
+                if approve:
+                    lifecycle.approve()
+                else:
+                    if reason is None:
+                        raise ValueError("El motivo de rechazo es obligatorio.")
+                    lifecycle.reject(reason)
+                user.account_status = lifecycle.status
+                user.rejection_reason = lifecycle.rejection_reason
+                self._uow.flush()
+                return UsuarioRead.model_validate(user)
+        except InvalidTransitionError as error:
+            raise ResourceConflictError(str(error)) from error
 
 
 class LoteService:
