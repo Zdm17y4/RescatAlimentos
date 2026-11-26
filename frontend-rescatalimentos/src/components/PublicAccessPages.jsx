@@ -1,29 +1,14 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../context/useAuth.js'
 import { registrationRoles } from '../data/registrationRoles.js'
 
-const cuentasDemostracion = [
-  {
-    identidad: 'donante.demo@rescatalimentos.test',
-    contraseña: 'DonanteDemo2026!',
-    ruta: '/donante/publicar-lote',
-  },
-  {
-    identidad: 'comedor.demo@rescatalimentos.test',
-    contraseña: 'ComedorDemo2026!',
-    ruta: '/comedor/dashboard',
-  },
-  {
-    identidad: 'voluntario.demo@rescatalimentos.test',
-    contraseña: 'VoluntarioDemo2026!',
-    ruta: '/logistica/dashboard',
-  },
-  {
-    identidad: 'admin.demo@rescatalimentos.test',
-    contraseña: 'AdminDemo2026!',
-    ruta: '/admin/usuarios',
-  },
-]
+const ROLE_ROUTES = {
+  DONANTE: '/donante/publicar-lote',
+  COMEDOR: '/comedor/dashboard',
+  DRIVER: '/logistica/dashboard',
+  ADMIN: '/admin/usuarios',
+}
 
 function PageIntro({ eyebrow, title, description }) {
   return (
@@ -39,7 +24,7 @@ function RegistrationSelectionPage() {
   return (
     <main className="access-page section-padding">
       <PageIntro
-        description="Elige el perfil que mejor representa tu participación. Cada formulario solicita información distinta para organizar el rescate."
+        description="Elige el perfil que mejor representa tu participación. El perfil define las operaciones que podrás realizar en la plataforma."
         eyebrow="Registro de la red"
         title="¿Cómo quieres participar?"
       />
@@ -71,8 +56,11 @@ function RegistrationSelectionPage() {
 function RegistrationPage() {
   const { role: roleId } = useParams()
   const role = registrationRoles.find((item) => item.id === roleId)
-  const [values, setValues] = useState({ mobility: '' })
-  const [submitted, setSubmitted] = useState(false)
+  const { register } = useAuth()
+  const [values, setValues] = useState({})
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   if (!role) return <Navigate replace to="/registro" />
 
@@ -84,9 +72,28 @@ function RegistrationPage() {
     }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    setSubmitted(true)
+    setMessage('')
+    setError('')
+    setSubmitting(true)
+    try {
+      const payload = {
+        email: values.email.trim(),
+        password: values.password,
+        role: role.apiRole,
+      }
+      if (values.address?.trim()) payload.address = values.address.trim()
+      await register(payload)
+      setMessage(
+        'Registro enviado. Tu cuenta queda pendiente de aprobación administrativa antes de iniciar sesión.',
+      )
+      setValues({})
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -103,17 +110,21 @@ function RegistrationPage() {
         <section className="registration-form-panel">
           <h2>Datos de registro</h2>
           <p className="form-panel-intro">
-            Completa la información necesaria para organizar tu participación.
+            La API actual guarda correo, contraseña, perfil y, si la indicas,
+            dirección.
           </p>
           <form className="role-form" onSubmit={handleSubmit}>
+            {message && (
+              <p className="form-message" role="status">
+                {message}
+              </p>
+            )}
+            {error && (
+              <p className="form-error-summary" role="alert">
+                {error}
+              </p>
+            )}
             {role.fields.map((field) => {
-              if (
-                field.dependsOnMobility &&
-                (!values.mobility || values.mobility === 'foot')
-              ) {
-                return null
-              }
-
               if (field.type === 'select') {
                 return (
                   <label key={field.name}>
@@ -121,7 +132,7 @@ function RegistrationPage() {
                     <select
                       name={field.name}
                       onChange={handleChange}
-                      required
+                      required={field.required !== false}
                       value={values[field.name] || ''}
                     >
                       <option disabled value="">
@@ -137,20 +148,6 @@ function RegistrationPage() {
                 )
               }
 
-              if (field.type === 'checkbox') {
-                return (
-                  <label className="checkbox-field" key={field.name}>
-                    <input
-                      checked={Boolean(values[field.name])}
-                      name={field.name}
-                      onChange={handleChange}
-                      type="checkbox"
-                    />
-                    {field.label}
-                  </label>
-                )
-              }
-
               return (
                 <label key={field.name}>
                   {field.label}
@@ -159,11 +156,8 @@ function RegistrationPage() {
                     min={field.min}
                     name={field.name}
                     onChange={handleChange}
-                    required={
-                      field.dependsOnMobility
-                        ? values.mobility !== 'foot'
-                        : true
-                    }
+                    minLength={field.name === 'password' ? 8 : undefined}
+                    required={field.required !== false}
                     step={field.step}
                     type={field.type || 'text'}
                     value={values[field.name] || ''}
@@ -171,15 +165,13 @@ function RegistrationPage() {
                 </label>
               )
             })}
-            <button className="button button-primary" type="submit">
-              Validar registro
+            <button
+              className="button button-primary"
+              disabled={submitting}
+              type="submit"
+            >
+              {submitting ? 'Enviando…' : 'Crear cuenta'}
             </button>
-            {submitted && (
-              <p className="form-message" role="status">
-                El formulario pasó la validación del navegador. No se envió ni
-                guardó: el prototipo todavía no está conectado al backend.
-              </p>
-            )}
           </form>
           <p className="approval-note">
             El flujo propuesto requiere revisión administrativa antes de
@@ -191,50 +183,45 @@ function RegistrationPage() {
   )
 }
 
-function LoginPage({ onLogin }) {
+function LoginPage() {
+  const { login } = useAuth()
   const [errorCredenciales, setErrorCredenciales] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
     const datos = new FormData(event.currentTarget)
-    const identidad = String(datos.get('identity')).trim().toLowerCase()
-    const contraseña = String(datos.get('password'))
-    const cuenta = cuentasDemostracion.find(
-      (item) =>
-        item.identidad === identidad && item.contraseña === contraseña,
-    )
-
-    if (!cuenta) {
-      setErrorCredenciales(
-        'Credenciales incorrectas. Usa una de las cuentas de demostración indicadas.',
-      )
-      return
+    setErrorCredenciales('')
+    setSubmitting(true)
+    try {
+      const session = await login({
+        email: String(datos.get('email')).trim(),
+        password: String(datos.get('password')),
+      })
+      navigate(ROLE_ROUTES[session.role], { replace: true })
+    } catch (requestError) {
+      setErrorCredenciales(requestError.message)
+    } finally {
+      setSubmitting(false)
     }
-
-    onLogin(cuenta)
-    navigate(cuenta.ruta)
   }
 
   return (
     <main className="access-page section-padding">
       <section className="login-panel">
         <PageIntro
-          description="Usa una cuenta de demostración para recorrer las vistas de donante, comedor, logística y administración."
+          description="Inicia sesión con una cuenta activa registrada en RescatAlimentos."
           eyebrow="Acceso a la plataforma"
           title="Inicia sesión"
         />
-        <p className="form-message">
-          Acceso de demostración local: no crea una cuenta ni valida identidad
-          con un servidor.
-        </p>
         <form className="role-form" onSubmit={handleSubmit}>
           <label>
-            Correo electrónico o RUC
+            Correo electrónico
             <input
               autoComplete="username"
-              name="identity"
-              placeholder="Correo electrónico o RUC"
+              name="email"
+              type="email"
               required
             />
           </label>
@@ -247,8 +234,12 @@ function LoginPage({ onLogin }) {
               type="password"
             />
           </label>
-          <button className="button button-primary" type="submit">
-            Iniciar sesión
+          <button
+            className="button button-primary"
+            disabled={submitting}
+            type="submit"
+          >
+            {submitting ? 'Ingresando…' : 'Iniciar sesión'}
           </button>
           {errorCredenciales && (
             <p className="form-error-summary" role="alert">

@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useLotes } from '../context/useLotes.js'
+import { apiRequest } from '../api/client.js'
+import { useAuth } from '../context/useAuth.js'
 
 const categorias = ['Frescos', 'Lácteos', 'Carnes', 'Abarrotes']
-const TAMANO_MAXIMO_FOTO = 2 * 1024 * 1024
-
-function leerImagenComoDataUrl(archivo) {
-  return new Promise((resolve, reject) => {
-    const lector = new FileReader()
-    lector.onload = () => resolve(lector.result)
-    lector.onerror = () => reject(new Error('No se pudo leer la fotografía.'))
-    lector.readAsDataURL(archivo)
-  })
+const valoresIniciales = {
+  categoria: '',
+  descripcion: '',
+  pesoKg: '',
+  vencimiento: '',
+  requiereFrio: false,
+  pickupAddress: '',
+  imageUrl: '',
 }
 
 function formatearVencimiento(valor) {
@@ -25,18 +25,12 @@ function formatearVencimiento(valor) {
 }
 
 function PublicarLotePage() {
-  const { publicarLote, errorPersistencia } = useLotes()
-  const [valores, setValores] = useState({
-    categoria: '',
-    descripcion: '',
-    pesoKg: '',
-    vencimiento: '',
-    requiereFrio: false,
-  })
-  const [imagen, setImagen] = useState('')
-  const [nombreArchivo, setNombreArchivo] = useState('')
+  const { session } = useAuth()
+  const [valores, setValores] = useState(valoresIniciales)
   const [errores, setErrores] = useState({})
   const [mensaje, setMensaje] = useState('')
+  const [errorApi, setErrorApi] = useState('')
+  const [publicando, setPublicando] = useState(false)
 
   function actualizarCampo(evento) {
     const { checked, name, type, value } = evento.target
@@ -46,44 +40,6 @@ function PublicarLotePage() {
     }))
     setErrores((actuales) => ({ ...actuales, [name]: '' }))
     setMensaje('')
-  }
-
-  async function seleccionarImagen(evento) {
-    const archivo = evento.target.files?.[0]
-    setImagen('')
-    setNombreArchivo('')
-    setErrores((actuales) => ({ ...actuales, imagen: '' }))
-    setMensaje('')
-
-    if (!archivo) return
-    if (!archivo.type.startsWith('image/')) {
-      setErrores((actuales) => ({
-        ...actuales,
-        imagen: 'Selecciona un archivo de imagen válido.',
-      }))
-      evento.target.value = ''
-      return
-    }
-    if (archivo.size > TAMANO_MAXIMO_FOTO) {
-      setErrores((actuales) => ({
-        ...actuales,
-        imagen: 'La fotografía debe pesar 2 MB o menos.',
-      }))
-      evento.target.value = ''
-      return
-    }
-
-    try {
-      const dataUrl = await leerImagenComoDataUrl(archivo)
-      setImagen(dataUrl)
-      setNombreArchivo(archivo.name)
-    } catch (error) {
-      setErrores((actuales) => ({
-        ...actuales,
-        imagen: error.message,
-      }))
-      evento.target.value = ''
-    }
   }
 
   function validarFormulario() {
@@ -106,44 +62,55 @@ function PublicarLotePage() {
         'El vencimiento debe ocurrir estrictamente después de 6 horas y antes de 48 horas desde ahora.'
     }
 
-    if (!imagen) nuevosErrores.imagen = 'Selecciona una fotografía del lote.'
+    if (!valores.pickupAddress.trim()) {
+      nuevosErrores.pickupAddress = 'Indica la dirección de recojo.'
+    }
+    if (valores.imageUrl.trim()) {
+      try {
+        const url = new URL(valores.imageUrl)
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          throw new Error('URL inválida')
+        }
+      } catch {
+        nuevosErrores.imageUrl = 'Ingresa una URL de imagen válida (http o https).'
+      }
+    }
     setErrores(nuevosErrores)
     return Object.keys(nuevosErrores).length === 0
   }
 
-  function enviarFormulario(evento) {
+  async function enviarFormulario(evento) {
     evento.preventDefault()
     setMensaje('')
+    setErrorApi('')
     if (!validarFormulario()) {
       setMensaje('Revisa los campos indicados antes de publicar el lote.')
       return
     }
 
-    publicarLote({
-      id: `lote-${Date.now()}`,
-      categoria: valores.categoria,
-      descripcion: valores.descripcion.trim(),
-      pesoKg: Number(valores.pesoKg),
-      vencimiento: new Date(valores.vencimiento).toISOString(),
-      requiereFrio: valores.requiereFrio,
-      imagen,
-      donante: 'Donante de prueba',
-      distanciaKm: 2.1,
-      estado: 'DISPONIBLE',
-      origen: 'Datos de prueba',
-    })
-    setMensaje('Lote publicado correctamente como disponible en los datos de prueba.')
-    setValores({
-      categoria: '',
-      descripcion: '',
-      pesoKg: '',
-      vencimiento: '',
-      requiereFrio: false,
-    })
-    setImagen('')
-    setNombreArchivo('')
-    setErrores({})
-    evento.target.reset()
+    setPublicando(true)
+    try {
+      await apiRequest('/lotes', {
+        method: 'POST',
+        token: session.token,
+        body: {
+          category: valores.categoria,
+          description: valores.descripcion.trim(),
+          weight_kg: Number(valores.pesoKg),
+          expires_at: new Date(valores.vencimiento).toISOString(),
+          requires_cold_chain: valores.requiereFrio,
+          pickup_address: valores.pickupAddress.trim(),
+          image_url: valores.imageUrl.trim() || null,
+        },
+      })
+      setMensaje('Lote publicado correctamente y guardado en el backend.')
+      setValores(valoresIniciales)
+      setErrores({})
+    } catch (error) {
+      setErrorApi(error.message)
+    } finally {
+      setPublicando(false)
+    }
   }
 
   function campoConError(nombre) {
@@ -153,11 +120,11 @@ function PublicarLotePage() {
   return (
     <main className="access-page section-padding prototipo-page">
       <header className="access-heading">
-        <p className="eyebrow">Prototipo · Datos de prueba</p>
+        <p className="eyebrow">Donante · Conectado al backend</p>
         <h1>Publicar un lote</h1>
         <p>
           Comparte alimentos aptos para el consumo. La publicación estará
-          disponible para que un comedor de prueba la consulte y reserve.
+          disponible para que un comedor la consulte y reserve.
         </p>
       </header>
 
@@ -165,16 +132,7 @@ function PublicarLotePage() {
         <Link aria-current="page" className="button button-primary" to="/donante/publicar-lote">
           Publicar lote
         </Link>
-        <Link className="button prototipo-button-secondary" to="/comedor/dashboard">
-          Ver lotes disponibles
-        </Link>
       </nav>
-
-      {errorPersistencia && (
-        <p className="prototipo-storage-error" role="alert">
-          {errorPersistencia}
-        </p>
-      )}
 
       <div className="publicar-layout">
         <section aria-labelledby="formulario-lote-titulo" className="prototipo-panel">
@@ -185,10 +143,15 @@ function PublicarLotePage() {
           <form className="lote-form" noValidate onSubmit={enviarFormulario}>
             {mensaje && (
               <p
-                className={mensaje.startsWith('Lote publicado') ? 'form-message' : 'form-error-summary'}
-                role={mensaje.startsWith('Lote publicado') ? 'status' : 'alert'}
+                className="form-message"
+                role="status"
               >
                 {mensaje}
+              </p>
+            )}
+            {errorApi && (
+              <p className="form-error-summary" role="alert">
+                {errorApi}
               </p>
             )}
 
@@ -286,28 +249,48 @@ function PublicarLotePage() {
               <span>Este lote requiere cadena de frío</span>
             </label>
 
-            <label className="lote-campo" htmlFor="imagen">
-              Fotografía del lote
+            <label className="lote-campo" htmlFor="pickupAddress">
+              Dirección de recojo
               <input
-                accept="image/*"
-                aria-describedby={campoConError('imagen')}
-                aria-invalid={Boolean(errores.imagen)}
-                id="imagen"
-                name="imagen"
-                onChange={seleccionarImagen}
-                type="file"
+                aria-describedby={campoConError('pickupAddress')}
+                aria-invalid={Boolean(errores.pickupAddress)}
+                id="pickupAddress"
+                name="pickupAddress"
+                onChange={actualizarCampo}
+                type="text"
+                value={valores.pickupAddress}
               />
-              <span className="lote-ayuda">
-                Solo imágenes de hasta 2 MB. Se guardará una copia local para el prototipo.
-              </span>
-              {errores.imagen && (
-                <span className="field-error" id="imagen-error">
-                  {errores.imagen}
+              {errores.pickupAddress && (
+                <span className="field-error" id="pickupAddress-error">
+                  {errores.pickupAddress}
                 </span>
               )}
             </label>
-            <button className="button button-primary" type="submit">
-              Publicar lote
+
+            <label className="lote-campo" htmlFor="imageUrl">
+              URL de fotografía (opcional)
+              <input
+                aria-describedby={campoConError('imageUrl')}
+                aria-invalid={Boolean(errores.imageUrl)}
+                id="imageUrl"
+                name="imageUrl"
+                onChange={actualizarCampo}
+                placeholder="https://..."
+                type="url"
+                value={valores.imageUrl}
+              />
+              {errores.imageUrl && (
+                <span className="field-error" id="imageUrl-error">
+                  {errores.imageUrl}
+                </span>
+              )}
+            </label>
+            <button
+              className="button button-primary"
+              disabled={publicando}
+              type="submit"
+            >
+              {publicando ? 'Publicando…' : 'Publicar lote'}
             </button>
           </form>
         </section>
@@ -315,17 +298,17 @@ function PublicarLotePage() {
         <aside aria-label="Vista previa del lote" className="prototipo-preview">
           <p className="eyebrow">Así lo verá un comedor</p>
           <article className="lote-card lote-preview-card">
-            {imagen ? (
-              <img alt={`Vista previa de ${valores.descripcion || 'la fotografía del lote'}`} src={imagen} />
+            {valores.imageUrl ? (
+              <img alt={`Vista previa de ${valores.descripcion || 'la fotografía del lote'}`} src={valores.imageUrl} />
             ) : (
               <div aria-hidden="true" className="lote-imagen-vacia">
-                Fotografía del lote
+                Sin fotografía
               </div>
             )}
             <div className="lote-card-content">
               <div className="lote-card-heading">
                 <span className="lote-badge">{valores.categoria || 'Categoría'}</span>
-                <span className="lote-distancia">2.1 km</span>
+                <span className="lote-distancia">Distancia no disponible</span>
               </div>
               <h2>{valores.descripcion || 'Nombre del alimento'}</h2>
               <p className="lote-peso">{valores.pesoKg || '—'} kg</p>
@@ -340,11 +323,10 @@ function PublicarLotePage() {
                 </div>
                 <div>
                   <dt>Donante</dt>
-                  <dd>Donante de prueba</dd>
+                  <dd>Tu cuenta</dd>
                 </div>
               </dl>
-              {nombreArchivo && <p className="lote-ayuda">Foto: {nombreArchivo}</p>}
-              <span className="lote-origen">Datos de prueba</span>
+              <span className="lote-origen">Vista previa · no se guarda hasta publicar</span>
             </div>
           </article>
         </aside>
