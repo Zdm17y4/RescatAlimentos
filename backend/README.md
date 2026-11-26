@@ -35,6 +35,22 @@ Configura `JWT_SECRET_KEY` con una clave aleatoria de al menos 32 caracteres;
 `JWT_ALGORITHM` y `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` también se leen del entorno.
 El valor de `.env.example` es solo ilustrativo y no debe usarse en producción.
 
+## Crear el primer administrador
+
+El registro público no permite asignar el rol `ADMIN`. Después de aplicar las
+migraciones, crea la primera cuenta desde la carpeta `backend` en una terminal
+local de confianza:
+
+```powershell
+python -m app.cli.bootstrap_admin
+```
+
+El comando solicita correo y contraseña sin mostrarla, crea una cuenta `ADMIN`
+activa y almacena la contraseña con Argon2. Solo funciona si todavía no existe
+ninguna cuenta `ADMIN`; no crea administradores mediante HTTP. Guarda las
+credenciales en un lugar seguro. Luego inicia sesión en
+`POST /api/v1/auth/login` y usa el token para aprobar las cuentas pendientes.
+
 ## Autenticación y aprobación
 
 - `POST /api/v1/auth/registro` crea una cuenta `PENDIENTE`.
