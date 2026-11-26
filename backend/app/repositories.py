@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -12,6 +12,7 @@ from app.db.models import (
     TransportRequest,
     TransportStatus,
     User,
+    UserRole,
 )
 
 
@@ -22,10 +23,16 @@ class UserRepository(Protocol):
 
     def get_by_email(self, email: str) -> User | None: ...
 
+    def lock_admin_bootstrap(self) -> None: ...
+
+    def has_role(self, role: UserRole) -> bool: ...
+
     def list_by_status(self, status: AccountStatus) -> list[User]: ...
 
 
 class SqlAlchemyUserRepository:
+    _ADMIN_BOOTSTRAP_LOCK_ID = 0x524553434154
+
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -41,6 +48,20 @@ class SqlAlchemyUserRepository:
     def get_by_email(self, email: str) -> User | None:
         statement = select(User).where(User.email == email)
         return self._session.scalar(statement)
+
+    def lock_admin_bootstrap(self) -> None:
+        if (
+            self._session.bind is not None
+            and self._session.bind.dialect.name == "postgresql"
+        ):
+            self._session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                {"lock_id": self._ADMIN_BOOTSTRAP_LOCK_ID},
+            )
+
+    def has_role(self, role: UserRole) -> bool:
+        statement = select(User.id).where(User.role == role).limit(1)
+        return self._session.scalar(statement) is not None
 
     def list_by_status(self, status: AccountStatus) -> list[User]:
         statement = (
