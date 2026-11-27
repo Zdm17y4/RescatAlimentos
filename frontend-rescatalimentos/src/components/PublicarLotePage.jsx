@@ -54,12 +54,12 @@ function PublicarLotePage() {
       nuevosErrores.pesoKg = 'Ingresa un peso mayor que 0 kg.'
     }
 
-    const horasRestantes = (new Date(valores.vencimiento).getTime() - Date.now()) / 3600000
-    if (!valores.vencimiento || !Number.isFinite(horasRestantes)) {
+    const vencimiento = new Date(valores.vencimiento).getTime()
+    if (!valores.vencimiento || !Number.isFinite(vencimiento)) {
       nuevosErrores.vencimiento = 'Indica la fecha y hora de vencimiento.'
-    } else if (horasRestantes <= 6 || horasRestantes >= 48) {
+    } else if (vencimiento <= Date.now()) {
       nuevosErrores.vencimiento =
-        'El vencimiento debe ocurrir estrictamente después de 6 horas y antes de 48 horas desde ahora.'
+        'El vencimiento debe ser posterior al momento de publicación.'
     }
 
     if (!valores.pickupAddress.trim()) {
@@ -138,7 +138,7 @@ function PublicarLotePage() {
         <section aria-labelledby="formulario-lote-titulo" className="prototipo-panel">
           <h2 id="formulario-lote-titulo">Datos del alimento</h2>
           <p className="form-panel-intro">
-            El vencimiento debe estar entre 6 y 48 horas desde el momento de publicación.
+            Indica la fecha y hora de vencimiento real del alimento. Debe ser posterior al momento de publicación.
           </p>
           <form className="lote-form" noValidate onSubmit={enviarFormulario}>
             {mensaje && (

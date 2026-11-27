@@ -3,7 +3,7 @@ const processSteps = [
     number: '01',
     title: 'El comercio publica un lote',
     description:
-      'Desde su panel web, registra categoría, peso en kilos, vencimiento, necesidad de cadena de frío y una foto, sin coordinaciones manuales. El flujo contempla productos próximos a vencer entre 6 y 48 horas.',
+      'Desde su panel web, registra categoría, peso en kilos, vencimiento, necesidad de cadena de frío y una foto, sin coordinaciones manuales.',
   },
   {
     number: '02',

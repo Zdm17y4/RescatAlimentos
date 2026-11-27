@@ -204,6 +204,24 @@ describe('publicación de lotes', () => {
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
+  it('rechaza vencimientos pasados', () => {
+    renderWithAuth(<PublicarLotePage />)
+
+    fireEvent.change(screen.getByLabelText('Fecha y hora de vencimiento'), {
+      target: {
+        value: new Date(Date.now() - 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 16),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar lote' }))
+
+    expect(
+      screen.getByText('El vencimiento debe ser posterior al momento de publicación.'),
+    ).toBeTruthy()
+    expect(apiRequest).not.toHaveBeenCalled()
+  })
+
   it('publica un lote válido y muestra el resultado del backend', async () => {
     vi.mocked(apiRequest).mockResolvedValue({})
     renderWithAuth(<PublicarLotePage />)
@@ -219,7 +237,7 @@ describe('publicación de lotes', () => {
     })
     fireEvent.change(screen.getByLabelText('Fecha y hora de vencimiento'), {
       target: {
-        value: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        value: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)
           .toISOString()
           .slice(0, 16),
       },
